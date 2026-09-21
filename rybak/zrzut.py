@@ -71,6 +71,7 @@ class PrintWindowGrabber:
         self._hdc = None
         self._mem = None
         self._bmp = None
+        self._stara_bmp = None
         self._buf = None
         self._flags = PW_CLIENTONLY | PW_RENDERFULLCONTENT
 
@@ -94,7 +95,12 @@ class PrintWindowGrabber:
             user32.ReleaseDC(self.hwnd, hdc)
             gdi32.DeleteDC(mem)
             raise RuntimeError("CreateDIBSection nie powiodlo sie")
-        gdi32.SelectObject(mem, bmp)
+        # SelectObject oddaje bitmape, ktora byla w DC wczesniej. Trzeba ja
+        # zapamietac i wstawic z powrotem przed skasowaniem naszej - inaczej
+        # DeleteObject na bitmapie WYBRANEJ w DC zwraca blad i nie zwalnia
+        # niczego. Przy kazdej zmianie rozmiaru okna gubilibysmy wtedy caly
+        # bufor, czyli kilka megabajtow na jedno przeciagniecie krawedzi.
+        self._stara_bmp = gdi32.SelectObject(mem, bmp)
         self._hdc, self._mem, self._bmp = hdc, mem, bmp
         self._buf = (ctypes.c_ubyte * (w * h * 4)).from_address(bits.value)
         self._size = (w, h)
@@ -113,6 +119,8 @@ class PrintWindowGrabber:
         return img[:, :, 2::-1].copy()        # BGRA -> RGB
 
     def close(self):
+        if self._mem and self._stara_bmp:
+            gdi32.SelectObject(self._mem, self._stara_bmp)
         if self._bmp:
             gdi32.DeleteObject(self._bmp)
         if self._mem:
@@ -120,6 +128,7 @@ class PrintWindowGrabber:
         if self._hdc:
             user32.ReleaseDC(self.hwnd, self._hdc)
         self._bmp = self._mem = self._hdc = self._buf = None
+        self._stara_bmp = None
         self._size = None
 
 
@@ -208,7 +217,7 @@ def print_window_probe(hwnd: int):
             user32.PrintWindow(wintypes.HWND(hwnd), g._mem, flagi)
             img = np.frombuffer(g._buf, dtype=np.uint8).reshape(h, w, 4)[:, :, 2::-1].copy()
             out.append((opis, flagi, img, looks_black(img)))
-        except Exception as exc:
+        except Exception:
             out.append((opis, flagi, None, True))
         finally:
             g.close()
@@ -258,7 +267,7 @@ def otworz_oko(hwnd: int):
     return Capture(hwnd, "screen"), "screen", skala
 
 
-def zmierz_szybkosc(oko, prob: int = 8) -> float:
+def zmierz_szybkosc(oko, prob: int = 8, wycinek=None) -> float:
     """
     Ile sekund zajmuje jeden zrzut. Mini-gra trwa okolo sekundy, wiec tempo
     patrzenia decyduje o celnosci - a PrintWindow bywa wyrazniej wolniejszy
@@ -270,7 +279,10 @@ def zmierz_szybkosc(oko, prob: int = 8) -> float:
     for _ in range(prob):
         t = _t.perf_counter()
         try:
-            oko.full()
+            if wycinek:
+                oko.region(*wycinek)
+            else:
+                oko.full()
         except Exception:
             return najlepszy
         najlepszy = min(najlepszy, _t.perf_counter() - t)

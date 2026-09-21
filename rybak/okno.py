@@ -182,6 +182,22 @@ def is_foreground(hwnd: int) -> bool:
     return user32.GetForegroundWindow() == hwnd
 
 
+def okno_zyje(hwnd: int) -> bool:
+    """
+    Czy to okno w ogole jeszcze istnieje.
+
+    Bez tego zamkniecie gry w trakcie lowienia konczy sie na dwa brzydkie
+    sposoby: albo GetClientRect rzuca wyjatkiem i uzytkownik oglada
+    tracebacka, albo - gorzej - is_foreground zwraca po prostu False i bot
+    w nieskonczonosc czeka, az "przelaczysz sie na okno gry", ktorego juz
+    nie ma.
+    """
+    try:
+        return bool(user32.IsWindow(wintypes.HWND(hwnd)))
+    except Exception:
+        return False
+
+
 class Grabber:
     """Cienka nakladka na mss - zwraca obraz RGB jako numpy array."""
 

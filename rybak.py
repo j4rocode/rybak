@@ -75,8 +75,14 @@ class Okno:
         self.tytul_gry = None
 
         root.title("Rybak - lowienie ryb w Metin2")
-        root.geometry("640x680")
-        root.minsize(580, 560)
+        self._dopasuj_do_ekranu()
+
+        # Po aktualizacji zostaja pliki ".stara" - plik w uzyciu nie daje
+        # sie skasowac w trakcie podmiany, ale przy nastepnym starcie juz tak.
+        try:
+            aktualizacja.posprzataj(Path(__file__).resolve().parent)
+        except Exception:
+            pass
 
         self._zbuduj()
         self._podlacz_log()
@@ -86,6 +92,59 @@ class Okno:
         root.protocol("WM_DELETE_WINDOW", self._zamknij)
 
     # ------------------------------------------------------------- budowa
+
+    def _dopasuj_do_ekranu(self) -> None:
+        """
+        Rozmiar okna i czcionek dobrany do TEGO ekranu.
+
+        Dwie rzeczy, ktore trzeba tu pogodzic. Po pierwsze program musi byc
+        "swiadomy DPI" - inaczej przy skalowaniu ekranu rozjechalyby sie
+        wspolrzedne zrzutu i bot patrzylby obok paska. Ale swiadomy DPI
+        znaczy tez, ze Windows NIE powieksza mu okna sam: na laptopie ze
+        skalowaniem 150% interfejs wyszedlby w dwoch trzecich wielkosci.
+        Skalujemy go wiec sami, wedlug prawdziwego DPI.
+
+        Po drugie okno musi sie zmiescic. Na ekranie 1366x768 - a takich
+        laptopow jest pelno - wysokie okno wystaje poza pulpit i przycisk
+        "Zacznij lowic" lezy poza ekranem. Dlatego docelowy rozmiar
+        przycinamy do tego, co ekran naprawde ma.
+        """
+        try:
+            import ctypes
+            dpi = int(ctypes.windll.user32.GetDpiForSystem())
+        except Exception:
+            dpi = 96
+        skala = min(2.0, max(1.0, dpi / 96.0))
+        if skala > 1.01:
+            try:
+                self.root.tk.call("tk", "scaling", skala * 96.0 / 72.0)
+            except Exception:
+                skala = 1.0
+
+        szer = int(640 * skala)
+        wys = int(690 * skala)
+        try:
+            szer = min(szer, int(self.root.winfo_screenwidth() * 0.95))
+            wys = min(wys, int(self.root.winfo_screenheight() * 0.90))
+        except Exception:
+            pass
+        self.root.geometry(f"{szer}x{wys}")
+        self.root.minsize(min(560, szer), min(430, wys))
+
+    def _sekcja(self, nazwa: str) -> dict:
+        """
+        Sekcja ustawien, zawsze jako slownik.
+
+        Uzytkownik moze recznie zepsuc ustawienia.json - wpisac tam null
+        albo liczbe. Wczytywanie broni sie tylko przed JSON-em, ktory sie
+        nie parsuje, wiec bez tego program umieralby tracebackiem, zanim
+        jeszcze pokaze okno.
+        """
+        w = self.ust.get(nazwa)
+        if not isinstance(w, dict):
+            w = dict(ustawienia.DOMYSLNE.get(nazwa) or {})
+            self.ust[nazwa] = w
+        return w
 
     def _zbuduj(self) -> None:
         pad = {"padx": 10, "pady": 4}
@@ -103,7 +162,7 @@ class Okno:
         # --- klawisze
         ramka2 = ttk.LabelFrame(self.root, text=" 2. Klawisze (zmien, jesli masz inne) ")
         ramka2.pack(fill="x", **pad)
-        l = self.ust.get("lowienie", {})
+        l = self._sekcja("lowienie")
         self.v_przyneta = tk.StringVar(value=l.get("przyneta", "1"))
         self.v_zarzut = tk.StringVar(value=l.get("zarzut", "space"))
         ttk.Label(ramka2, text="Przyneta:").grid(row=0, column=0, padx=8, pady=6, sticky="w")
@@ -114,7 +173,7 @@ class Okno:
         # --- powiadomienia
         ramka3 = ttk.LabelFrame(self.root, text=" 3. Powiadomienia na telefon (opcjonalne) ")
         ramka3.pack(fill="x", **pad)
-        p = self.ust.get("powiadomienia", {})
+        p = self._sekcja("powiadomienia")
         self.v_push = tk.BooleanVar(value=bool(p.get("enabled")))
         ttk.Checkbutton(ramka3, text="Wysylaj powiadomienia",
                         variable=self.v_push).grid(row=0, column=0, padx=8,
@@ -130,9 +189,9 @@ class Okno:
                    command=self._test_push).grid(row=1, column=3, padx=6)
 
         self.v_koperta = tk.BooleanVar(
-            value=bool((self.ust.get("koperta") or {}).get("wlaczone", True)))
+            value=bool(self._sekcja("koperta").get("wlaczone", True)))
         self.v_rozmowy = tk.BooleanVar(
-            value=bool((self.ust.get("rozmowy") or {}).get("wlaczone", False)))
+            value=bool(self._sekcja("rozmowy").get("wlaczone", False)))
         ttk.Checkbutton(ramka3, text="Przerwij lowienie, gdy ktos napisze PW",
                         variable=self.v_koperta).grid(row=2, column=0, columnspan=2,
                                                       padx=8, sticky="w")
@@ -170,7 +229,7 @@ class Okno:
         # --- log
         ramka5 = ttk.LabelFrame(self.root, text=" Co sie dzieje ")
         ramka5.pack(fill="both", expand=True, **pad)
-        self.log_box = tk.Text(ramka5, height=12, wrap="word", state="disabled",
+        self.log_box = tk.Text(ramka5, height=8, wrap="word", state="disabled",
                                font=("Consolas", 9))
         pasek = ttk.Scrollbar(ramka5, command=self.log_box.yview)
         self.log_box.configure(yscrollcommand=pasek.set)
@@ -242,7 +301,9 @@ class Okno:
 
     def _test_push(self) -> None:
         self._zbierz_ustawienia()
-        push = Push(self.ust["powiadomienia"] | {"enabled": True})
+        cfg = dict(self._sekcja("powiadomienia"))
+        cfg["enabled"] = True
+        push = Push(cfg)
         if not push.topic:
             messagebox.showwarning("Rybak", "Najpierw wpisz nazwe kanalu.")
             return
@@ -258,15 +319,15 @@ class Okno:
     # ------------------------------------------------------------ start
 
     def _zbierz_ustawienia(self) -> None:
-        l = self.ust.setdefault("lowienie", {})
+        l = self._sekcja("lowienie")
         l["przyneta"] = self.v_przyneta.get().strip() or "1"
         l["zarzut"] = self.v_zarzut.get().strip() or "space"
         l["ladowanie"] = l["zarzut"]
-        p = self.ust.setdefault("powiadomienia", {})
+        p = self._sekcja("powiadomienia")
         p["enabled"] = bool(self.v_push.get())
         p["ntfy_topic"] = self.v_kanal.get().strip()
-        self.ust.setdefault("koperta", {})["wlaczone"] = bool(self.v_koperta.get())
-        self.ust.setdefault("rozmowy", {})["wlaczone"] = bool(self.v_rozmowy.get())
+        self._sekcja("koperta")["wlaczone"] = bool(self.v_koperta.get())
+        self._sekcja("rozmowy")["wlaczone"] = bool(self.v_rozmowy.get())
         self.ust["zrodlo_aktualizacji"] = self.v_zrodlo.get().strip()
         if self.tytul_gry:
             self.ust["okno_gry"] = self.tytul_gry
@@ -396,6 +457,10 @@ class Okno:
                                    aktualizacja.nowsza(wersja, WERSJA))
 
     def _zapytaj_i_zainstaluj(self, paczka: Path, wersja: str, nowsza: bool) -> None:
+        if self.rybak is not None:
+            messagebox.showwarning("Aktualizacja",
+                                   "Najpierw zatrzymaj lowienie.")
+            return
         if not nowsza:
             if not messagebox.askyesno(
                     "Aktualizacja",
@@ -409,10 +474,6 @@ class Okno:
                 f"Twoje ustawienia i to, czego bot sie nauczyl, zostaja "
                 f"nietkniete. Stara wersja zostanie skopiowana do folderu "
                 f"'kopia_...' obok programu."):
-            return
-        if self.rybak is not None:
-            messagebox.showwarning("Aktualizacja",
-                                   "Najpierw zatrzymaj lowienie.")
             return
         try:
             ile, kopia = aktualizacja.zainstaluj(paczka, self._folder_programu())
@@ -502,12 +563,34 @@ class Okno:
                 self.log_box.configure(state="disabled")
         except queue.Empty:
             pass
-        self.root.after(120, self._odswiez_log)
+        except Exception as exc:                  # nie wolno przerwac pompy
+            # Gdyby cokolwiek tu wybuchlo - zepsuty komunikat, zniszczony
+            # widget - a przeplanowanie bylo na koncu, log zamarlby na
+            # zawsze i program wygladalby na zawieszony, choc bot pracuje.
+            try:
+                self.log_box.configure(state="normal")
+                self.log_box.insert("end", f"(blad okienka: {exc})\n")
+                self.log_box.configure(state="disabled")
+            except Exception:
+                pass
+        finally:
+            try:
+                self.root.after(120, self._odswiez_log)
+            except Exception:
+                pass
 
     def _zamknij(self) -> None:
+        # Czekamy, az watek bota naprawde skonczy. Wczesniej bylo tu
+        # time.sleep(0.3) - za malo, bo sama ocena rzutu trwa 0,8 s. Watek
+        # jest daemon, wiec po wyjsciu z mainloop interpreter ubilby go w
+        # dowolnym miejscu, takze w srodku zapisu ustawien: plik zostawalby
+        # obciety albo pusty.
         if self.rybak is not None:
             self.rybak.stop()
-            time.sleep(0.3)
+            if self.watek is not None and self.watek.is_alive():
+                self.stan.config(text="Koncze...")
+                self.root.update_idletasks()
+                self.watek.join(timeout=5.0)
         self._zbierz_ustawienia()
         self.root.destroy()
 

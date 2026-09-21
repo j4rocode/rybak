@@ -13,7 +13,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-PLIK = "ustawienia.json"
+#: Plik ustawien lezy OBOK programu, nie w katalogu, z ktorego ktos go
+#: uruchomil. Inaczej "python C:\\Rybak\\rybak.py" wywolane z pulpitu
+#: czytaloby i zapisywalo ustawienia na pulpicie - a aktualizacja chronilaby
+#: wtedy nie ten plik, co trzeba.
+PLIK = Path(__file__).resolve().parent.parent / "ustawienia.json"
 
 DOMYSLNE = {
     # Fragment tytulu okna gry. Puste = szukaj sam (patrz rybak/okno.py).
@@ -70,10 +74,19 @@ DOMYSLNE = {
 
 
 def _scal(baza: dict, zmiany: dict) -> dict:
+    """
+    Nakladamy zapisane ustawienia na domyslne.
+
+    Sekcja, ktora w pliku jest czyms innym niz slownikiem - bo ktos wpisal
+    tam null, liczbe albo pomylil sie w nawiasach - jest ODRZUCANA i wraca
+    do domyslnej. Inaczej program umieralby tracebackiem przy budowaniu
+    okna, zanim zdazy cokolwiek pokazac, a uzytkownik zobaczylby tylko
+    "przeczytaj komunikat wyzej".
+    """
     out = dict(baza)
     for k, v in (zmiany or {}).items():
-        if isinstance(v, dict) and isinstance(out.get(k), dict):
-            out[k] = _scal(out[k], v)
+        if isinstance(out.get(k), dict):
+            out[k] = _scal(out[k], v) if isinstance(v, dict) else dict(out[k])
         else:
             out[k] = v
     return out
@@ -92,11 +105,27 @@ def wczytaj(sciezka: str | Path = PLIK) -> dict:
 
 
 def zapisz(ust: dict, sciezka: str | Path = PLIK) -> None:
+    """
+    Zapis przez plik tymczasowy i podmiane nazwy.
+
+    write_text najpierw obcina plik do zera, a potem pisze. Gdyby program
+    zginal miedzy jednym a drugim - a zamykanie okna potrafi ubic watek w
+    dowolnym momencie - zostalby pusty plik i uzytkownik straciby ustawienia
+    razem z tym, czego bot sie nauczyl. os.replace jest niepodzielne: albo
+    stara zawartosc, albo nowa.
+    """
+    import os
+    sciezka = Path(sciezka)
+    tymczasowy = sciezka.with_name(sciezka.name + ".nowy")
     try:
-        Path(sciezka).write_text(
-            json.dumps(ust, indent=2, ensure_ascii=False), encoding="utf-8")
+        tymczasowy.write_text(json.dumps(ust, indent=2, ensure_ascii=False),
+                              encoding="utf-8")
+        os.replace(tymczasowy, sciezka)
     except Exception:
-        pass
+        try:
+            tymczasowy.unlink()
+        except Exception:
+            pass
 
 
 def losowy_kanal() -> str:

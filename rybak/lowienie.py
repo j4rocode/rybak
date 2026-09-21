@@ -27,13 +27,11 @@ import threading
 import time
 from collections import deque
 
-import numpy as np
-
 from . import klawisze
 from .koperta import Koperta
-from .okno import client_area, is_foreground
-from .pasek import (DOMYSLNE_TEMPO, Bar, _marker_speed, _reflect, _slope,
-                    read_bar, szukaj_paska)
+from .okno import client_area, is_foreground, okno_zyje
+from .pasek import (DOMYSLNE_TEMPO, OBSZAR, Bar, _marker_speed, _reflect,
+                    _slope, read_bar, szukaj_paska)
 from .push import Push
 from .rozmowy import SpeechWatcher
 from .zrzut import Capture, otworz_oko, zmierz_szybkosc
@@ -79,6 +77,12 @@ class Rybak:
         self.przerwane_wiadomoscia = False
         self.ostatni_blad = None
         self._ostatnia_rozmowa = 0.0
+        # Obszar, w ktorym szukamy paska. Zaczynamy waskim pasem posrodku
+        # okna - tam pasek wychodzi zawsze - a gdy kilka razy z rzedu nic
+        # nie znajdziemy, poszerzamy go. Wolimy szukac szerzej niz nie
+        # znalezc wcale na kliencie, ktory rysuje interfejs inaczej.
+        self.obszar_szukania = OBSZAR
+        self._puste_zarzuty = 0
 
     # ----------------------------------------------------------- sterowanie
 
@@ -108,7 +112,12 @@ class Rybak:
         # Mini-gra trwa okolo sekundy, wiec kazda klatka to kilka pikseli
         # dokladnosci; obiecywanie sobie 90 klatek na slabszym sprzecie
         # konczy sie tym, ze bot spoznia sie systematycznie.
-        jeden = zmierz_szybkosc(self.oko)
+        # Mierzymy takim samym zrzutem, jakiego uzywamy w mini-grze: maly
+        # wycinek posrodku okna. Mierzenie calego okna zanizaloby wynik przy
+        # zwyklym zrzucie ekranu, gdzie wycinek jest wielokrotnie tanszy.
+        proba = (max(0, a.width // 2 - 150), max(0, int(a.height * 0.7) - 20),
+                 min(a.width, a.width // 2 + 150), min(a.height, int(a.height * 0.7) + 20))
+        jeden = zmierz_szybkosc(self.oko, wycinek=proba)
         mozliwe = 1.0 / max(jeden * 1.6, 0.004)
         if mozliwe < self.fps:
             log.info("Jeden zrzut zajmuje %.0f ms - patrze %d razy na sekunde "
@@ -129,7 +138,7 @@ class Rybak:
             })
 
     def _zamknij_oczy(self) -> None:
-        for co in (self.koperta, self.oko):
+        for co in (self.koperta, self.rozmowy, self.oko):
             try:
                 if co is not None and hasattr(co, "close"):
                     co.close()
@@ -140,7 +149,12 @@ class Rybak:
         return self.oko.full()
 
     def _wycinek(self, bar: Bar, pad_x: int = 45, pad_y: int = 14):
+        # Rozmiar okna bierzemy na nowo, bo gracz mogl je przeciagnac. Gdy
+        # sie zmienil, pasek z poprzedniej klatki i tak jest nieaktualny -
+        # mowimy o tym glosno, zamiast czytac piksele obok.
         a = self.obszar()
+        if bar.x1 >= a.width or bar.y1 >= a.height:
+            raise _OknoZmienione()
         x0 = max(0, bar.x0 - pad_x)
         y0 = max(0, bar.y0 - pad_y)
         x1 = min(a.width, bar.x1 + pad_x)
@@ -153,9 +167,13 @@ class Rybak:
     # ------------------------------------------------------------ klawisze
 
     def _stuknij(self, klawisz: str, trzymaj: float = 0.06) -> None:
-        klawisze.send_key_down(klawisz)
+        # key_down/key_up to SendInput ze skankodem - jedyny sposob, ktory
+        # ten klient przyjmuje. Warianty send_* i post_* z klawisze.py to
+        # komunikaty okienkowe; gra czyta klawiature przez DirectInput i
+        # komunikatow nie widzi wcale.
+        klawisze.key_down(klawisz)
         time.sleep(trzymaj)
-        klawisze.send_key_up(klawisz)
+        klawisze.key_up(klawisz)
 
     # ------------------------------------------------------------ przerwania
 
@@ -209,6 +227,8 @@ class Rybak:
         zerkniec = bez_focusu = 0
         while time.time() < koniec:
             self._sprawdz_stop()
+            if not okno_zyje(self.hwnd):
+                raise _GraZnikla()
             if not is_foreground(self.hwnd):
                 bez_focusu += 1
                 self._spij(0.3)
@@ -217,11 +237,18 @@ class Rybak:
                 return None
             self._czy_rozmowa()
             zerkniec += 1
-            bar = szukaj_paska(self._klatka())
+            bar = szukaj_paska(self._klatka(), self.obszar_szukania)
             if bar is not None:
+                self.ostatni_blad = None
+                self._puste_zarzuty = 0
                 return bar
             time.sleep(0.08)
         self.ostatni_blad = self._czemu_bez_paska(zerkniec, bez_focusu)
+        self._puste_zarzuty += 1
+        if self._puste_zarzuty == 2 and self.obszar_szukania == OBSZAR:
+            self.obszar_szukania = (0.10, 0.25, 0.90, 1.0)
+            log.info("Dwa zarzucenia bez paska - poszerzam obszar szukania "
+                     "na wypadek, gdyby ten klient rysowal go gdzie indziej")
         return None
 
     def _czemu_bez_paska(self, zerkniec: int, bez_focusu: int) -> str:
@@ -238,7 +265,7 @@ class Rybak:
         koniec = time.time() + ile_sekund
         while time.time() < koniec:
             self._sprawdz_stop()
-            if szukaj_paska(self._klatka()) is None:
+            if szukaj_paska(self._klatka(), self.obszar_szukania) is None:
                 return
             time.sleep(0.1)
 
@@ -281,7 +308,7 @@ class Rybak:
             time.sleep(okres)
 
         t0 = time.time()
-        klawisze.send_key_down(self.klawisz_ladowania)
+        klawisze.key_down(self.klawisz_ladowania)
         try:
             while True:
                 self._sprawdz_stop()
@@ -338,7 +365,7 @@ class Rybak:
                     break
                 time.sleep(okres)
         finally:
-            klawisze.send_key_up(self.klawisz_ladowania)
+            klawisze.key_up(self.klawisz_ladowania)
 
         self.prob += 1
         if not puszczone:
@@ -356,6 +383,8 @@ class Rybak:
         ostatnia_rybka = None
         koniec = time.time() + 0.8
         while time.time() < koniec:
+            if self.stop_flaga.is_set():
+                break            # Stop ma dzialac od razu, nie po 0,8 s
             img = self._zrzut_wycinka(box)
             fx, mk, zyje = read_bar(img, bar, origin, extra_left=35)
             if mk is not None:
@@ -429,12 +458,19 @@ class Rybak:
                         break
                     continue
                 pudla_z_rzedu = 0
-                self.zagraj(bar)
+                try:
+                    self.zagraj(bar)
+                except _OknoZmienione:
+                    log.info("Okno gry zmienilo rozmiar - szukam paska od nowa")
+                    continue
                 self.na_zmiane()
                 self.czekaj_az_zniknie(3.0)
                 self._spij(self.po_zlowieniu)
         except _Przerwane:
             log.info("Zatrzymane.")
+        except _GraZnikla:
+            log.warning("Okno gry zniknelo - gra zostala zamknieta albo sie "
+                        "rozlaczyla. Koncze.")
         except Exception as exc:
             log.exception("Cos poszlo nie tak: %s", exc)
         finally:
@@ -452,6 +488,8 @@ class Rybak:
         powiedziane = False
         while not is_foreground(self.hwnd):
             self._sprawdz_stop()
+            if not okno_zyje(self.hwnd):
+                raise _GraZnikla()
             if not powiedziane:
                 powiedziane = True
                 log.info("Czekam, az przelaczysz sie na okno gry...")
@@ -466,3 +504,11 @@ class Rybak:
 
 class _Przerwane(Exception):
     """Wewnetrzne: ktos nacisnal Stop."""
+
+
+class _GraZnikla(Exception):
+    """Wewnetrzne: okno gry przestalo istniec."""
+
+
+class _OknoZmienione(Exception):
+    """Wewnetrzne: okno zmienilo rozmiar, zapamietany pasek jest nieaktualny."""
