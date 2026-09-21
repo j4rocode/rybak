@@ -1,0 +1,83 @@
+=======================================================================
+  RYBAK - automatyczne lowienie ryb w Metin2
+=======================================================================
+
+CO TO ROBI
+  Naklada przyneta, zarzuca wedke, czeka na branie i sam gra w mini-gre
+  (zatrzymuje ladowanie dokladnie na rybce). Gdy ktos napisze do Ciebie
+  prywatna wiadomosc, przerywa lowienie i - jesli chcesz - dzwoni na
+  telefon ze zrzutem ekranu.
+
+JAK URUCHOMIC
+  1. Wlacz Metina, stan przy wodzie, wez wedke do reki.
+  2. Kliknij dwa razy w plik  Rybak.bat
+     Windows zapyta o zgode administratora - kliknij TAK.
+     (Bez tego klawisze nie dojda do gry. Gra chodzi z wyzszymi
+      uprawnieniami niz zwykly program i Windows tego pilnuje.)
+  3. Przy pierwszym uruchomieniu program sam dogra sobie biblioteki.
+     Potrwa to kilka minut - tylko ten jeden raz.
+  4. Sprawdz, czy w okienku widnieje nazwa Twojej gry, i nacisnij
+     "Zacznij lowic". Przelacz sie na okno gry.
+
+NIC NIE TRZEBA KALIBROWAC
+  Program sam znajduje okno gry, sam radzi sobie ze skalowaniem ekranu
+  (to przez nie interfejs gry bywa ogromny na laptopach) i sam rozpoznaje
+  pasek mini-gry - po niebieskiej rybce w ciemnym korycie posrodku okna.
+  Tempo ladowania i opoznienie klawiatury mierzy w trakcie lowienia i
+  poprawia po kazdej rybie, wiec pierwsze 2-3 proby moga byc chybione,
+  a potem sam sie dostraja.
+
+KLAWISZE
+  Domyslnie: przyneta na "1", zarzucenie i ladowanie na spacji. Jesli masz
+  inaczej, zmien to w okienku przed startem.
+
+POWIADOMIENIA NA TELEFON (opcjonalne)
+  1. Zainstaluj darmowa aplikacje "ntfy" (Google Play / App Store).
+  2. W aplikacji nacisnij + i wpisz nazwe kanalu z okienka programu.
+  3. Zaznacz "Wysylaj powiadomienia" i nacisnij "Wyslij test".
+
+  UWAGA: ntfy nie ma hasel. Kto zna nazwe kanalu, ten widzi Twoje
+  powiadomienia razem ze zrzutami ekranu. Dlatego program generuje dluga,
+  losowa nazwe - nie zmieniaj jej na cos prostego i nie podawaj obcym.
+
+GDY COS NIE DZIALA
+  "Nie widze okna gry"
+      Wlacz gre i kliknij "Szukaj jeszcze raz". Jesli dalej nie widzi -
+      "Wybierz recznie" i wskaz okno z listy.
+
+  Bot zarzuca, ale nie laduje paska
+      Prawie zawsze znaczy to, ze nie zostal uruchomiony jako
+      administrator. Zamknij okno i uruchom Rybak.bat, zgadzajac sie na
+      pytanie Windowsa.
+
+  Bot nic nie robi
+      Okno gry musi byc na wierzchu. Bot pisze do okna aktywnego, wiec
+      gdy przelaczysz sie na przegladarke, grzecznie czeka.
+
+  Cztery zarzucenia bez brania
+      Program sam sie zatrzymuje - zwykle znaczy to, ze skonczyla sie
+      przyneta.
+
+AKTUALIZACJA
+  Gdy wyjdzie nowa wersja, nie trzeba nic przenosic recznie. W okienku, w
+  sekcji "Aktualizacja", sa dwa przyciski:
+
+    "Sprawdz aktualizacje"  - pobiera nowa wersje spod adresu wpisanego
+                              obok (dostaniesz go od osoby, ktora dala Ci
+                              ten program) i wgrywa ja po potwierdzeniu.
+    "Z pliku ZIP..."        - to samo, ale z paczki na dysku: z pendrive'a,
+                              maila albo Discorda. Przydaje sie tam, gdzie
+                              nie ma internetu.
+
+  Przy starcie program po cichu sprawdza, czy jest cos nowego, i pisze o
+  tym na etykiecie. Nie zadaje pytan i nic nie robi bez Twojej zgody.
+
+  Twoje ustawienia, kanal powiadomien i to, czego bot sie nauczyl (tempo
+  ladowania, opoznienie klawiatury), NIE sa nadpisywane. Stara wersja
+  laduje w folderze "kopia_<data>" obok programu, wiec zawsze jest do
+  czego wrocic.
+
+
+CZEGO TEN PROGRAM NIE ROBI
+  Nie czyta i nie zmienia pamieci gry. Patrzy na obraz i naciska klawisze,
+  dokladnie tak jak reka gracza.
