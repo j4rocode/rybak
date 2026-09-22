@@ -122,7 +122,7 @@ class Okno:
                 skala = 1.0
 
         szer = int(640 * skala)
-        wys = int(690 * skala)
+        wys = int(780 * skala)
         try:
             szer = min(szer, int(self.root.winfo_screenwidth() * 0.95))
             wys = min(wys, int(self.root.winfo_screenheight() * 0.90))
@@ -130,6 +130,33 @@ class Okno:
             pass
         self.root.geometry(f"{szer}x{wys}")
         self.root.minsize(min(560, szer), min(430, wys))
+
+    def _pokaz_nauke(self) -> None:
+        l = self._sekcja("lowienie")
+        p = float(l.get("poprawka_px", 0) or 0)
+        tempo = l.get("tempo_px_s")
+        self.etykieta_nauki.config(
+            text=f"Bot dolozyl od siebie: {-p:+.1f} px"
+                 + (f"   (zmierzone tempo {float(tempo):.0f} px/s)" if tempo else ""))
+
+    def _wyzeruj_nauke(self) -> None:
+        """
+        Skasuj to, czego bot nauczyl sie sam.
+
+        Przydaje sie po zmianie poziomu lowienia albo po przeczytaniu ksiegi:
+        stare liczby opisuja gre, ktorej juz nie ma, a bot dochodzi do nowych
+        kilka rzutow. Twojego recznego przesuniecia celu to nie rusza.
+        """
+        if self.rybak is not None:
+            messagebox.showwarning("Rybak", "Najpierw zatrzymaj lowienie.")
+            return
+        l = self._sekcja("lowienie")
+        for k in ("poprawka_px", "wyprzedzenie_ms", "tempo_px_s", "tempo_nauki"):
+            l[k] = 0.0 if k != "tempo_px_s" else None
+        ustawienia.zapisz(self.ust)
+        self._pokaz_nauke()
+        self._pisz("Wyzerowalem nauke - tempo i poprawka zmierza sie od nowa "
+                   "przy najblizszych rzutach.")
 
     def _sekcja(self, nazwa: str) -> dict:
         """
@@ -169,9 +196,40 @@ class Okno:
         ttk.Entry(ramka2, textvariable=self.v_przyneta, width=8).grid(row=0, column=1)
         ttk.Label(ramka2, text="Zarzucenie i ladowanie:").grid(row=0, column=2, padx=(20, 6))
         ttk.Entry(ramka2, textvariable=self.v_zarzut, width=8).grid(row=0, column=3)
+        ttk.Label(ramka2, text="Przerwa po zlowieniu (s):").grid(
+            row=1, column=0, columnspan=2, padx=8, pady=(0, 6), sticky="w")
+        self.v_przerwa = tk.StringVar(value=str(l.get("po_zlowieniu", 0.7)))
+        ttk.Spinbox(ramka2, textvariable=self.v_przerwa, width=6,
+                    from_=0.0, to=5.0, increment=0.1).grid(row=1, column=2,
+                                                           sticky="w", pady=(0, 6))
+        ttk.Label(ramka2, text="mniej = szybciej, ale gra moze zgubic klawisz").grid(
+            row=1, column=3, sticky="w", padx=(6, 8))
+
+        # --- celowanie
+        ramkaC = ttk.LabelFrame(self.root, text=" 3. Celowanie ")
+        ramkaC.pack(fill="x", **pad)
+        ttk.Label(ramkaC, text="Przesuniecie celu (px):").grid(
+            row=0, column=0, padx=8, pady=6, sticky="w")
+        self.v_celowanie = tk.StringVar(value=str(l.get("celowanie_px", 7)))
+        ttk.Spinbox(ramkaC, textvariable=self.v_celowanie, width=6,
+                    from_=-30, to=30, increment=1).grid(row=0, column=1, sticky="w")
+        ttk.Label(ramkaC,
+                  text="mniej = puszcza wczesniej  |  wiecej = puzniej").grid(
+            row=0, column=2, padx=(10, 8), sticky="w")
+        self.v_uczenie = tk.BooleanVar(value=bool(l.get("uczenie", True)))
+        ttk.Checkbutton(ramkaC, text="Bot moze sam dostrajac celowanie",
+                        variable=self.v_uczenie).grid(row=1, column=0, columnspan=2,
+                                                      padx=8, sticky="w")
+        ttk.Button(ramkaC, text="Wyzeruj nauke",
+                   command=self._wyzeruj_nauke).grid(row=1, column=2, padx=(10, 8),
+                                                     pady=(0, 6), sticky="w")
+        self.etykieta_nauki = ttk.Label(ramkaC, text="")
+        self.etykieta_nauki.grid(row=2, column=0, columnspan=3, padx=8,
+                                 pady=(0, 6), sticky="w")
+        self._pokaz_nauke()
 
         # --- powiadomienia
-        ramka3 = ttk.LabelFrame(self.root, text=" 3. Powiadomienia na telefon (opcjonalne) ")
+        ramka3 = ttk.LabelFrame(self.root, text=" 4. Powiadomienia na telefon (opcjonalne) ")
         ramka3.pack(fill="x", **pad)
         p = self._sekcja("powiadomienia")
         self.v_push = tk.BooleanVar(value=bool(p.get("enabled")))
@@ -200,7 +258,7 @@ class Okno:
                                                       padx=8, pady=(0, 6), sticky="w")
 
         # --- aktualizacja
-        ramka35 = ttk.LabelFrame(self.root, text=" 4. Aktualizacja ")
+        ramka35 = ttk.LabelFrame(self.root, text=" 5. Aktualizacja ")
         ramka35.pack(fill="x", **pad)
         self.etykieta_wersji = ttk.Label(ramka35, text=f"Masz wersje {WERSJA}.")
         self.etykieta_wersji.grid(row=0, column=0, columnspan=3, padx=8,
@@ -229,7 +287,7 @@ class Okno:
         # --- log
         ramka5 = ttk.LabelFrame(self.root, text=" Co sie dzieje ")
         ramka5.pack(fill="both", expand=True, **pad)
-        self.log_box = tk.Text(ramka5, height=8, wrap="word", state="disabled",
+        self.log_box = tk.Text(ramka5, height=6, wrap="word", state="disabled",
                                font=("Consolas", 9))
         pasek = ttk.Scrollbar(ramka5, command=self.log_box.yview)
         self.log_box.configure(yscrollcommand=pasek.set)
@@ -323,6 +381,17 @@ class Okno:
         l["przyneta"] = self.v_przyneta.get().strip() or "1"
         l["zarzut"] = self.v_zarzut.get().strip() or "space"
         l["ladowanie"] = l["zarzut"]
+        try:
+            l["po_zlowieniu"] = max(0.0, min(5.0, float(
+                self.v_przerwa.get().replace(",", "."))))
+        except ValueError:
+            pass                      # zostaw to, co bylo - nie karz za literowke
+        try:
+            l["celowanie_px"] = max(-30.0, min(30.0, float(
+                self.v_celowanie.get().replace(",", "."))))
+        except ValueError:
+            pass
+        l["uczenie"] = bool(self.v_uczenie.get())
         p = self._sekcja("powiadomienia")
         p["enabled"] = bool(self.v_push.get())
         p["ntfy_topic"] = self.v_kanal.get().strip()
@@ -534,6 +603,7 @@ class Okno:
                     self.rybak = None
                     self.przycisk.config(text="Zacznij lowic")
                     self.stan.config(text="Gotowy.")
+                    self._pokaz_nauke()
                     continue
                 if wiersz.startswith("__stan__"):
                     self.stan.config(text=wiersz[8:])

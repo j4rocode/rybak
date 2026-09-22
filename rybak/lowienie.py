@@ -56,7 +56,14 @@ class Rybak:
         self.czekaj_na_branie = float(l.get("czekaj_na_branie", 45.0))
         self.fps = float(l.get("klatek_na_sekunde", 90))
         self.podglad_ms = float(l.get("podglad_ms", 160))
-        self.po_zlowieniu = float(l.get("po_zlowieniu", 1.5))
+        # Trzy przerwy, ktore skladaja sie na odstep miedzy rybami. Sa
+        # osobne, bo kazda ma inny powod: gra potrzebuje chwili na zalozenie
+        # przynety, chwili na animacje zarzutu, i chwili na zniknieciu
+        # poprzedniego paska. Za krotkie - gra gubi klawisz i bot zarzuca w
+        # prozne; za dlugie - stoimy bez powodu.
+        self.po_zlowieniu = float(l.get("po_zlowieniu", 0.7))
+        self.po_przynecie = float(l.get("po_przynecie", 0.5))
+        self.po_zarzuceniu = float(l.get("po_zarzuceniu", 0.9))
         self.uczenie = bool(l.get("uczenie", True))
 
         # Czego bot nauczyl sie poprzednio. Wszystkie trzy liczby sa tylko
@@ -64,6 +71,20 @@ class Rybak:
         self.tempo = float(l.get("tempo_px_s") or DOMYSLNE_TEMPO)
         self.wyprzedzenie_ms = float(l.get("wyprzedzenie_ms", 0) or 0)
         self.poprawka = float(l.get("poprawka_px", 0) or 0)
+        # Przy jakim tempie nauczyla sie powyzsza poprawka. Poprawka jest w
+        # PIKSELACH, a piksele zaleza od tempa - gdy gra zmieni tempo (inny
+        # poziom lowienia, przeczytana ksiega), ta sama zwloka to juz inna
+        # liczba pikseli. Zamiast uczyc sie od zera, przeliczamy ja.
+        self.tempo_nauki = float(l.get("tempo_nauki") or self.tempo)
+        self.ostatnie_bledy = deque(maxlen=6)
+        # DWA rozne przesuniecia celu, celowo trzymane osobno:
+        #   celowanie  - Twoje, reczne. Bot go nigdy nie rusza.
+        #   poprawka   - to, czego bot nauczyl sie sam z wlasnych pomiarow.
+        # Rozdzielone, bo bot NIE WIDZI, czy gra zaliczyla rybe. Gdy krawedz
+        # wypelnienia schowa sie pod rybka, jej prawdziwe polozenie jest
+        # nie do zmierzenia - dla bota kazde takie zatrzymanie wyglada na
+        # trafienie. Ty widzisz w grze, czy ryba wpadla, wiec ostatnie slowo
+        # musi nalezec do Ciebie, a nauka nie moze Twojego ustawienia zjadac.
         self.celowanie = float(l.get("celowanie_px", 7))
 
         self.oko: Capture | None = None
@@ -217,10 +238,10 @@ class Rybak:
     def zarzuc(self) -> None:
         if self.przyneta_co and self.zarzucen % self.przyneta_co == 0:
             self._stuknij(self.klawisz_przynety)
-            self._spij(0.8)
+            self._spij(self.po_przynecie)
         self._stuknij(self.klawisz_zarzutu)
         self.zarzucen += 1
-        self._spij(1.2)
+        self._spij(self.po_zarzuceniu)
 
     def czekaj_na_pasek(self, ile_sekund: float) -> Bar | None:
         koniec = time.time() + ile_sekund
@@ -261,13 +282,18 @@ class Rybak:
                 f"albo skonczyla sie przyneta")
 
     def czekaj_az_zniknie(self, ile_sekund: float = 6.0) -> None:
-        """Po zlowieniu pasek jeszcze chwile gasnie - nie bierz go za nowy."""
+        """
+        Po zlowieniu pasek jeszcze chwile gasnie - nie bierz go za nowy.
+
+        Wychodzimy w chwili, gdy zniknie, wiec ta wartosc to tylko gorny
+        limit, a nie przerwa. Sprawdzamy czesto, zeby nie przeciagac.
+        """
         koniec = time.time() + ile_sekund
         while time.time() < koniec:
             self._sprawdz_stop()
             if szukaj_paska(self._klatka(), self.obszar_szukania) is None:
                 return
-            time.sleep(0.1)
+            time.sleep(0.06)
 
     # ------------------------------------------------------------- mini-gra
 
@@ -286,11 +312,14 @@ class Rybak:
         """
         box, origin = self._wycinek(bar)
         okres = 1.0 / max(20.0, self.fps)
-        czyste = deque(maxlen=8)         # (czas, x) wypelnienia sprzed rybki
+        czyste = deque(maxlen=40)        # (czas, x) wypelnienia sprzed rybki
         rybki = deque(maxlen=12)         # (czas, srodek rybki)
         kotwica = None
         puszczone = False
+        przeszukane_ponownie = False
         x_przy_puszczeniu = None
+        zmierzone_tempo = None
+        wiek_kotwicy = 0.0
 
         # Zanim zaczniemy ladowac, popatrz chwile na sama rybke - inaczej
         # pierwszy rachunek szedlby bez znajomosci jej kierunku.
@@ -327,9 +356,30 @@ class Rybak:
                 if mk is not None:
                     rybki.append((teraz, mk[0]))
                 if fx is None:
-                    if teraz - t0 > 1.6:
-                        log.warning("Trzymam %r, a pasek nie rosnie - czy to na "
-                                    "pewno klawisz ladowania?", self.klawisz_ladowania)
+                    # Nie widzimy wypelnienia. Zanim uznamy, ze klawisz jest
+                    # zly, sprawdzamy drugie wytlumaczenie: pasek znalazl sie
+                    # nie tam, gdzie patrzymy - bo drgnal albo zmierzylismy go
+                    # w chwili, gdy rybka zaslaniala mu brzeg. Raz na rzut
+                    # szukamy go od nowa na calej klatce i czytamy dalej z
+                    # nowego miejsca.
+                    if teraz - t0 > 0.7 and not przeszukane_ponownie:
+                        przeszukane_ponownie = True
+                        nowy = szukaj_paska(self._klatka(), self.obszar_szukania)
+                        if nowy is not None and (nowy.x0 != bar.x0 or nowy.y0 != bar.y0):
+                            log.info("Pasek jest gdzie indziej niz myslalem "
+                                     "(%s -> %s) - czytam z nowego miejsca",
+                                     bar.as_list(), nowy.as_list())
+                            bar = nowy
+                            box, origin = self._wycinek(bar)
+                            czyste.clear()
+                            kotwica = None
+                            time.sleep(okres)
+                            continue
+                    if teraz - t0 > 1.8:
+                        log.warning("Trzymam %r przez %.1f s, a nie widze, zeby "
+                                    "pasek rosl. Jesli w grze rosnie, to znaczy, "
+                                    "ze czytam zle miejsce - napisz mi o tym.",
+                                    self.klawisz_ladowania, teraz - t0)
                         break
                     time.sleep(okres)
                     continue
@@ -338,9 +388,15 @@ class Rybak:
                 if mk is None or fx < mk[1] - 3:
                     czyste.append((teraz, fx))
                     kotwica = (teraz, fx)
-                    v = _slope(czyste)
+                    # Tempo liczymy z ostatniego pol sekundy, a nie z osmiu
+                    # ostatnich probek. Osiem probek przy 90 klatkach to
+                    # ledwie 0,09 s - na tak krotkim odcinku szum odczytu
+                    # +-2 px daje +-20 px/s, czyli dziesiec razy wiecej niz
+                    # roznica, ktora chcemy wychwycic.
+                    v = _slope(czyste, window=0.5)
                     if v and 60 < v < 600:
                         self.tempo = v
+                        zmierzone_tempo = v
 
                 v = self.tempo
                 v_rybki = _marker_speed(rybki)
@@ -354,14 +410,18 @@ class Rybak:
                 else:
                     cel = bar.x1 + self.celowanie
 
-                if przewidziane >= cel:
+                if (przewidziane >= cel
+                        or (mk is not None and tutaj > mk[2] + 2)
+                        or tutaj >= bar.x1 - 3):
                     puszczone, x_przy_puszczeniu = True, tutaj
-                    break
-                if mk is not None and tutaj > mk[2] + 2:
-                    puszczone, x_przy_puszczeniu = True, tutaj
-                    break
-                if tutaj >= bar.x1 - 3:
-                    puszczone, x_przy_puszczeniu = True, tutaj
+                    # Ile czasu uplynelo od ostatniego PEWNEGO odczytu
+                    # krawedzi wypelnienia. To jest miara, na ktorej stoi
+                    # cala celnosc: przez ten czas polozenie nie jest
+                    # widziane, tylko liczone z tempa. Kilkadziesiat
+                    # milisekund to norma; pol sekundy znaczy, ze bot
+                    # strzelal w ciemno i kazdy blad tempa urosl
+                    # kilkunastokrotnie.
+                    wiek_kotwicy = teraz - at
                     break
                 time.sleep(okres)
         finally:
@@ -370,9 +430,11 @@ class Rybak:
         self.prob += 1
         if not puszczone:
             return False
-        return self._ocen(bar, box, origin, x_przy_puszczeniu)
+        return self._ocen(bar, box, origin, x_przy_puszczeniu,
+                          zmierzone_tempo, wiek_kotwicy)
 
-    def _ocen(self, bar: Bar, box, origin, x_przy_puszczeniu) -> bool:
+    def _ocen(self, bar: Bar, box, origin, x_przy_puszczeniu,
+              zmierzone_tempo=None, wiek_kotwicy=0.0) -> bool:
         """
         Po puszczeniu klawisza wypelnienie zamiera - a rybka plynie dalej.
         Dlatego oceniamy po klatce, w ktorej wypelnienie doszlo NAJDALEJ, a
@@ -404,13 +466,46 @@ class Rybak:
         trafione = pod_rybka or abs(blad) <= 8
         if trafione:
             self.trafien += 1
-        log.info("Stop na %d px, rybka %d px (%d-%d) -> %s (blad %+.0f px)",
+        # Gdy krawedz schowala sie pod rybka, nie wiemy, GDZIE dokladnie
+        # stanela - wiec nie udajemy, ze blad wynosi zero. Gra moze taka
+        # probe zaliczyc albo nie; widzisz to Ty, nie bot.
+        ocena = ("w obrysie rybki, dokladnego miejsca nie widze" if pod_rybka
+                 else f"blad {blad:+.0f} px")
+        log.info("Stop na %d px, rybka %d px (%d-%d) -> %s (%s, tempo %s, "
+                 "na slepo %.0f ms)",
                  szczyt, srodek, lewa, prawa,
-                 "TRAFIONE" if trafione else "pudlo", blad)
+                 "trafione" if trafione else "PUDLO", ocena,
+                 f"{zmierzone_tempo:.0f} px/s" if zmierzone_tempo else "niezmierzone",
+                 wiek_kotwicy * 1000)
+        if pod_rybka:
+            log.debug("Krawedz wypelnienia schowala sie pod rybka - jej "
+                      "dokladnego polozenia nie da sie zmierzyc, wiec nie "
+                      "mam sie z tego czego uczyc")
+        if wiek_kotwicy > 0.25:
+            log.warning("Przez ostatnie %.0f ms nie widzialem krawedzi "
+                        "wypelnienia i liczylem ja z tempa - stad pudlo. "
+                        "Zwykle znaczy to, ze odczyt paska sie urwal.",
+                        wiek_kotwicy * 1000)
+        if zmierzone_tempo is None:
+            log.info("Nie zdazylem zmierzyc tempa w tym rzucie (rybka "
+                     "zaslonila wypelnienie od razu) - uzylem zapamietanego "
+                     "%.0f px/s", self.tempo)
 
         # Douczanie. Gdy koniec wypelnienia zostal pod rybka, jego prawdziwe
         # polozenie jest nieznane - wtedy nie ma czego uczyc i tak jestesmy
         # na celu.
+        # Zmienilo sie tempo gry? Przelicz poprawke, zamiast uczyc sie od zera.
+        if (zmierzone_tempo and self.tempo_nauki
+                and abs(zmierzone_tempo - self.tempo_nauki) / self.tempo_nauki > 0.015):
+            stara = self.poprawka
+            self.poprawka *= zmierzone_tempo / self.tempo_nauki
+            log.info("Tempo wypelniania zmienilo sie z %.0f na %.0f px/s "
+                     "(%+.1f%%) - przeliczam poprawke celu %.1f -> %.1f px",
+                     self.tempo_nauki, zmierzone_tempo,
+                     (zmierzone_tempo / self.tempo_nauki - 1) * 100,
+                     stara, self.poprawka)
+            self.tempo_nauki = zmierzone_tempo
+
         zaslonione = (ostatnia_rybka is not None
                       and ostatnia_rybka[1] - 3 <= szczyt <= ostatnia_rybka[2] + 1)
         if (self.uczenie and x_przy_puszczeniu is not None
@@ -420,7 +515,20 @@ class Rybak:
                 self.wyprzedzenie_ms = max(0.0, min(
                     260.0, 0.5 * self.wyprzedzenie_ms + 0.5 * opoznienie))
             if abs(blad) <= 60:
-                self.poprawka = max(-25.0, min(25.0, self.poprawka + 0.5 * blad))
+                # Gdy ostatnie rzuty chybiaja W TE SAMA STRONE, to nie jest
+                # szum, tylko przesuniecie - i nie ma po co dochodzic do
+                # niego polowkami. Nadrabiamy wtedy caly blad naraz.
+                self.ostatnie_bledy.append(blad)
+                krok = 0.5
+                if len(self.ostatnie_bledy) >= 4:
+                    znaki = [1 if b > 0 else -1 for b in self.ostatnie_bledy if abs(b) > 1]
+                    if len(znaki) >= 4 and abs(sum(znaki)) == len(znaki):
+                        krok = 1.0
+                        log.info("Cztery pudla pod rzad w te sama strone - "
+                                 "poprawiam celowanie od razu o caly blad")
+                self.poprawka = max(-35.0, min(35.0, self.poprawka + krok * blad))
+                if zmierzone_tempo:
+                    self.tempo_nauki = zmierzone_tempo
         return trafione
 
     # ------------------------------------------------------------ petla
@@ -464,7 +572,7 @@ class Rybak:
                     log.info("Okno gry zmienilo rozmiar - szukam paska od nowa")
                     continue
                 self.na_zmiane()
-                self.czekaj_az_zniknie(3.0)
+                self.czekaj_az_zniknie(2.0)
                 self._spij(self.po_zlowieniu)
         except _Przerwane:
             log.info("Zatrzymane.")
@@ -500,6 +608,7 @@ class Rybak:
         l["tempo_px_s"] = round(self.tempo, 1)
         l["wyprzedzenie_ms"] = round(self.wyprzedzenie_ms, 1)
         l["poprawka_px"] = round(self.poprawka, 1)
+        l["tempo_nauki"] = round(self.tempo_nauki, 1)
 
 
 class _Przerwane(Exception):

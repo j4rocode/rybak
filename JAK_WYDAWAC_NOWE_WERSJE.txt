@@ -27,6 +27,15 @@ DROGA 1: GITHUB - juz ustawiona
   uruchomieniu git otworzy przegladarke i poprosi o zalogowanie na
   GitHuba - to jedyny raz.
 
+  WAZNE: wyslij_na_github.bat uruchamiaj TYLKO na tym komputerze, na
+  ktorym robisz nowe wersje. Na kopii - takiej, ktora dostala program
+  przez "Sprawdz aktualizacje" albo z ZIP-a - git zalozylby wlasna,
+  osobna historie, a wtedy wysylka konczy sie odmowa:
+      ! [rejected] main -> main (fetch first)
+  Skrypt to teraz rozpoznaje i mowi wprost, zamiast podpowiadac --force,
+  ktory skasowalby prawdziwa historie. Na takiej kopii wystarczy skasowac
+  ukryty folder .git - do aktualizacji nie jest potrzebny.
+
   BEZ GITA: wejdz na https://github.com/j4rocode/rybak , kliknij
   "uploading an existing file" i przeciagnij tam zawartosc folderu.
   Dziala tak samo, tylko trzeba powtarzac przy kazdej wersji.

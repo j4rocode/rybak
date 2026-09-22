@@ -9,6 +9,10 @@ CO TO ROBI
   telefon ze zrzutem ekranu.
 
 JAK URUCHOMIC
+  0. Rozpakuj ZIP-a OBOK, a nie do srodka istniejacego folderu Rybak.
+     Windows nie rozroznia wielkosci liter, wiec rozpakowanie paczki do
+     folderu, ktory juz sie tak nazywa, wsypuje jej zawartosc miedzy pliki
+     programu. Nic sie od tego nie psuje, ale robi sie balagan.
   1. Wlacz Metina, stan przy wodzie, wez wedke do reki.
   2. Kliknij dwa razy w plik  Rybak.bat
      Windows zapyta o zgode administratora - kliknij TAK.
@@ -30,6 +34,26 @@ NIC NIE TRZEBA KALIBROWAC
 KLAWISZE
   Domyslnie: przyneta na "1", zarzucenie i ladowanie na spacji. Jesli masz
   inaczej, zmien to w okienku przed startem.
+
+GDY BOT PRZECIAGA ALBO PUSZCZA ZA WCZESNIE
+  W okienku, w sekcji "Celowanie", jest pole "Przesuniecie celu (px)".
+  Mniej - nawet ujemnie - puszcza wczesniej; wiecej puszcza pozniej.
+  Zmieniaj po 2-3 px i patrz, czy ryb przybywa.
+
+  Po co to w ogole, skoro bot uczy sie sam: bot NIE WIDZI, czy gra
+  zaliczyla rybe. Gdy krawedz wypelnienia schowa sie pod rybka, jej
+  dokladnego polozenia nie da sie zmierzyc - dla bota kazde takie
+  zatrzymanie wyglada tak samo. Ty widzisz w grze, czy ryba wpadla, wiec
+  ostatnie slowo nalezy do Ciebie.
+
+  Obok jest "Bot moze sam dostrajac celowanie". Odznacz, jesli chcesz
+  ustawic wszystko recznie - wtedy bot nie rusza Twojej liczby.
+
+  "Wyzeruj nauke" kasuje to, co bot zmierzyl sam: tempo wypelniania i
+  wlasna poprawke. Przydaje sie po zmianie poziomu lowienia albo po
+  przeczytaniu ksiegi, bo stare liczby opisuja gre, ktorej juz nie ma.
+  Twojego recznego przesuniecia to nie rusza.
+
 
 POWIADOMIENIA NA TELEFON (opcjonalne)
   1. Zainstaluj darmowa aplikacje "ntfy" (Google Play / App Store).

@@ -247,9 +247,15 @@ def read_bar(rgb: np.ndarray, bar: Bar, origin=(0, 0), extra_left: int = 0):
 
     fill_x = None
     cols = fill.sum(axis=0)
-    solid = np.where(cols >= max(2, wide.shape[0] // 3))[0]
-    if solid.size:
-        fill_x = int(solid.max()) + xw + ox
+    # Prog dobieramy do tego, co widac, a nie do zalozonej wysokosci paska.
+    # Sztywne "jedna trzecia wysokosci" zawodzilo, gdy pasek wykryl sie
+    # wyzszy, niz jest naprawde: prog rosl, a zolty slup zostawal ten sam.
+    if cols.size:
+        szczyt = int(cols.max())
+        prog = max(2, min(wide.shape[0] // 3, int(0.6 * szczyt)))
+        solid = np.where(cols >= prog)[0]
+        if solid.size:
+            fill_x = int(solid.max()) + xw + ox
 
     marker_span = None
     mcols = marker.sum(axis=0)
@@ -357,8 +363,43 @@ def szukaj_paska(rgb: np.ndarray, obszar=OBSZAR) -> "Bar | None":
             najlepszy = k
     if najlepszy is None:
         return None
-    return Bar(x0=najlepszy["x0"], x1=najlepszy["x1"],
-               y0=najlepszy["y0"], y1=najlepszy["y1"])
+    y0, y1 = _dociagnij_wiersze(rgb, najlepszy)
+    return Bar(x0=najlepszy["x0"], x1=najlepszy["x1"], y0=y0, y1=y1)
+
+
+def _dociagnij_wiersze(rgb: np.ndarray, k) -> tuple:
+    """
+    Przytnij pasek do wierszy, ktore naprawde sa paskiem.
+
+    Po co: plama, po ktorej go znajdujemy, bywa wyzsza niz sam pasek. Rybka
+    jest rysowana NA nim i wystaje nad i pod, a jej ciemnogranatowy obrys
+    wpada w te sama maske co puste koryto - wiec plama rosnie w pionie
+    dokladnie tam, gdzie akurat plywa rybka.
+
+    Samo w sobie nie brzmi grozne, ale odczyt wypelnienia wymaga, zeby zolty
+    slup zajmowal jakas czesc WYSOKOSCI paska. Gdy wysokosc jest zawyzona
+    dwukrotnie, prog rosnie dwukrotnie - i wypelnienie przestaje byc
+    widoczne, mimo ze w grze pasek rosnie jak zwykle. Objawia sie to
+    "co ktores lowienie", bo zalezy od tego, gdzie stala rybka w chwili
+    znalezienia paska.
+
+    Zostawiamy wiersze, w ktorych koryto albo wypelnienie zajmuje wiekszosc
+    szerokosci - czyli wlasciwe cialo paska.
+    """
+    y0, y1 = k["y0"], k["y1"]
+    x0, x1 = k["x0"], k["x1"] + 1
+    h, w = rgb.shape[:2]
+    y0 = max(0, min(y0, h - 1)); y1 = max(y0, min(y1, h - 1))
+    x0 = max(0, min(x0, w - 1)); x1 = max(x0 + 1, min(x1, w))
+    pas = rgb[y0:y1 + 1, x0:x1]
+    if pas.size == 0:
+        return k["y0"], k["y1"]
+    cialo = (mask_trough(pas) | mask_fill(pas))
+    udzial = cialo.mean(axis=1)
+    dobre = np.where(udzial >= 0.5)[0]
+    if dobre.size < 3:
+        return k["y0"], k["y1"]
+    return int(y0 + dobre.min()), int(y0 + dobre.max())
 
 
 def opisz_kandydatow(rgb: np.ndarray, obszar=OBSZAR):

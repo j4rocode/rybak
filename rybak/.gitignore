@@ -1,7 +1,0 @@
-# To, co powstaje u uzytkownika - nie nalezy do programu.
-ustawienia.json
-kopia_*/
-__pycache__/
-*.pyc
-*.log
-*.png

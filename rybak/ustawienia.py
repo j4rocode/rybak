@@ -34,11 +34,21 @@ DOMYSLNE = {
         "zarzut": "space",        # klawisz zarzucenia wedki
         "ladowanie": "space",     # klawisz trzymany w mini-grze
         "czekaj_na_branie": 45.0,
-        "po_zlowieniu": 1.5,
+        # Przerwy w sekundach. Skracaj ostroznie: gdy gra nie zdazy przyjac
+        # klawisza, bot zarzuca w prozne i traci cala runde zamiast ulamka
+        # sekundy.
+        "po_zlowieniu": 0.7,       # od zniknieciu paska do nastepnej przynety
+        "po_przynecie": 0.5,       # od przynety do zarzucenia
+        "po_zarzuceniu": 0.9,      # od zarzucenia do patrzenia na pasek
         # Ponizsze bot mierzy sam - to tylko punkt wyjscia.
         "tempo_px_s": None,
         "wyprzedzenie_ms": 0.0,
         "poprawka_px": 0.0,
+        "tempo_nauki": None,      # przy jakim tempie nauczyla sie poprawka
+        # O ile pikseli za srodek rybki celowac. TWOJE ustawienie - bot go
+        # nie rusza. Mniej (nawet ujemnie) = puszcza wczesniej, czyli
+        # zatrzymuje pasek blizej lewej krawedzi rybki. Zwieksz, jesli w grze
+        # widzisz, ze przeciaga.
         "celowanie_px": 7,
         "klatek_na_sekunde": 90,
         "podglad_ms": 160,

@@ -1,0 +1,13 @@
+# Pliki .bat MUSZA miec konce linii CRLF.
+#
+# Git domyslnie "normalizuje" pliki tekstowe do LF przy zapisie do
+# repozytorium. Dla .py to bez znaczenia, ale cmd.exe czyta plik wsadowy
+# na biezaco i przy skokach goto szuka etykiet po pozycji w pliku - z
+# samymi LF potrafi zgubic sie w polowie skryptu. A nasze .bat sa w calosci
+# oparte na goto. "-text" mowi gitowi: nie tykaj, zapisz bajt w bajt.
+*.bat -text
+*.txt -text
+
+# Zrodla trzymamy w LF - tak jest czysciej w historii zmian, a Pythonowi
+# to obojetne.
+*.py text eol=lf
