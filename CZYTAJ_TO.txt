@@ -78,9 +78,23 @@ GDY COS NIE DZIALA
       Okno gry musi byc na wierzchu. Bot pisze do okna aktywnego, wiec
       gdy przelaczysz sie na przegladarke, grzecznie czeka.
 
-  Cztery zarzucenia bez brania
-      Program sam sie zatrzymuje - zwykle znaczy to, ze skonczyla sie
-      przyneta.
+  "Celnych 8/10" - a ryb mniej?
+      Bot liczy wylacznie to, czy zatrzymal pasek na rybce. Czy gra
+      zaliczyla polow, wie tylko gra - ryba potrafi uciec z haczyka mimo
+      idealnego trafienia. Dlatego w logu jest "celnie", a nie
+      "zlowione".
+
+
+  Bot zarzuca, ale nic sie nie dzieje / zatrzymuje sie po kilku probach
+      Po NIEUDANEJ probie animacja w grze trwa dluzej niz po udanej.
+      Jesli bot zarzuci w jej trakcie, gra zignoruje klawisz - wedka nie
+      poleci i runda przepada. W okienku, w sekcji "Klawisze i przerwy",
+      zwieksz "po pudle" o 0,5 s i sprobuj jeszcze raz.
+
+      Bot i tak sam sobie z tym radzi: z kazdym nieudanym zarzuceniem
+      czeka o 0,6 s dluzej, wiec zwykle sam trafia we wlasciwa dlugosc
+      przerwy. Zatrzymuje sie dopiero po szesciu probach - wtedy
+      naprawde zwykle chodzi o brak przynety.
 
 AKTUALIZACJA
   Gdy wyjdzie nowa wersja, nie trzeba nic przenosic recznie. W okienku, w

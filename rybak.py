@@ -122,7 +122,7 @@ class Okno:
                 skala = 1.0
 
         szer = int(640 * skala)
-        wys = int(780 * skala)
+        wys = int(860 * skala)
         try:
             szer = min(szer, int(self.root.winfo_screenwidth() * 0.95))
             wys = min(wys, int(self.root.winfo_screenheight() * 0.90))
@@ -187,7 +187,7 @@ class Okno:
                    command=self._wybierz_gre).pack(side="right", pady=6)
 
         # --- klawisze
-        ramka2 = ttk.LabelFrame(self.root, text=" 2. Klawisze (zmien, jesli masz inne) ")
+        ramka2 = ttk.LabelFrame(self.root, text=" 2. Klawisze i przerwy ")
         ramka2.pack(fill="x", **pad)
         l = self._sekcja("lowienie")
         self.v_przyneta = tk.StringVar(value=l.get("przyneta", "1"))
@@ -196,14 +196,41 @@ class Okno:
         ttk.Entry(ramka2, textvariable=self.v_przyneta, width=8).grid(row=0, column=1)
         ttk.Label(ramka2, text="Zarzucenie i ladowanie:").grid(row=0, column=2, padx=(20, 6))
         ttk.Entry(ramka2, textvariable=self.v_zarzut, width=8).grid(row=0, column=3)
-        ttk.Label(ramka2, text="Przerwa po zlowieniu (s):").grid(
-            row=1, column=0, columnspan=2, padx=8, pady=(0, 6), sticky="w")
-        self.v_przerwa = tk.StringVar(value=str(l.get("po_zlowieniu", 0.7)))
-        ttk.Spinbox(ramka2, textvariable=self.v_przerwa, width=6,
-                    from_=0.0, to=5.0, increment=0.1).grid(row=1, column=2,
-                                                           sticky="w", pady=(0, 6))
-        ttk.Label(ramka2, text="mniej = szybciej, ale gra moze zgubic klawisz").grid(
-            row=1, column=3, sticky="w", padx=(6, 8))
+        ttk.Label(ramka2, text="Przerwy w sekundach:").grid(
+            row=1, column=0, columnspan=4, padx=8, pady=(8, 2), sticky="w")
+
+        # Cztery przerwy, kazda z innego powodu - dlatego osobno, a nie
+        # jednym suwakiem "szybkosc". Najwazniejsza jest "po pudle": po
+        # nieudanej probie animacja w grze trwa dluzej i to wlasnie wtedy
+        # bot zarzuca za wczesnie, a gra gubi klawisz.
+        self.v_przerwy = {}
+        opis = [
+            ("po_zlowieniu", "po rundzie, min", 0.7,
+             "bot sam dostraja sie w tym zakresie"),
+            ("po_pudle", "po rundzie, maks", 3.0,
+             "zwieksz, jesli gubi zarzuty"),
+            ("po_przynecie", "po przynecie", 0.5,
+             "od nalozenia przynety do zarzutu"),
+            ("po_zarzuceniu", "po zarzuceniu", 0.9,
+             "zanim zacznie wypatrywac paska"),
+        ]
+        for i, (klucz, etykieta, domyslnie, podpowiedz) in enumerate(opis):
+            wiersz = 2 + i
+            ttk.Label(ramka2, text=etykieta + ":").grid(
+                row=wiersz, column=0, padx=(20, 4), sticky="e")
+            zm = tk.StringVar(value=str(l.get(klucz, domyslnie)))
+            self.v_przerwy[klucz] = zm
+            ttk.Spinbox(ramka2, textvariable=zm, width=6, from_=0.0, to=10.0,
+                        increment=0.1).grid(row=wiersz, column=1, sticky="w")
+            ttk.Label(ramka2, text=podpowiedz).grid(
+                row=wiersz, column=2, columnspan=2, padx=(10, 8), sticky="w")
+        ttk.Label(ramka2,
+                  text="Za krotko = gra gubi klawisz i runda przepada.").grid(
+            row=6, column=0, columnspan=4, padx=8, pady=(4, 0), sticky="w")
+        ttk.Label(ramka2,
+                  text="Po rundzie bot wydluza przerwe po kazdym zgubionym "
+                       "zarzuceniu i skraca po pieciu udanych.").grid(
+            row=7, column=0, columnspan=4, padx=8, pady=(0, 6), sticky="w")
 
         # --- celowanie
         ramkaC = ttk.LabelFrame(self.root, text=" 3. Celowanie ")
@@ -381,11 +408,12 @@ class Okno:
         l["przyneta"] = self.v_przyneta.get().strip() or "1"
         l["zarzut"] = self.v_zarzut.get().strip() or "space"
         l["ladowanie"] = l["zarzut"]
-        try:
-            l["po_zlowieniu"] = max(0.0, min(5.0, float(
-                self.v_przerwa.get().replace(",", "."))))
-        except ValueError:
-            pass                      # zostaw to, co bylo - nie karz za literowke
+        for klucz, zm in self.v_przerwy.items():
+            try:
+                l[klucz] = max(0.0, min(10.0, float(
+                    zm.get().replace(",", "."))))
+            except ValueError:
+                pass                  # zostaw to, co bylo - nie karz za literowke
         try:
             l["celowanie_px"] = max(-30.0, min(30.0, float(
                 self.v_celowanie.get().replace(",", "."))))
@@ -445,7 +473,7 @@ class Okno:
         if r is None:
             return
         self.kolejka.put(
-            f"__stan__Zarzucen {r.zarzucen}, trafien {r.trafien}/{r.prob}")
+            f"__stan__Zarzucen {r.zarzucen}, celnych {r.trafien}/{r.prob}")
 
     @staticmethod
     def _czy_admin() -> bool:

@@ -61,9 +61,32 @@ class Rybak:
         # przynety, chwili na animacje zarzutu, i chwili na zniknieciu
         # poprzedniego paska. Za krotkie - gra gubi klawisz i bot zarzuca w
         # prozne; za dlugie - stoimy bez powodu.
-        self.po_zlowieniu = float(l.get("po_zlowieniu", 0.7))
+        # PRZERWA PO RUNDZIE - i dlaczego jest to zakres, a nie liczba.
+        #
+        # Po nieudanej probie animacja w grze trwa dluzej niz po udanej, a
+        # zarzucenie w jej trakcie przepada: gra gubi klawisz, wedka nie
+        # leci, runda idzie w kosmos. Kusi, zeby czekac dluzej "po pudle" -
+        # tylko ze bot NIE WIE, czy ryba wpadla. Wie jedynie, czy celnie
+        # zatrzymal pasek, a celny pasek to nie to samo co zlowiona ryba:
+        # ryba potrafi uciec z haczyka mimo idealnego trafienia, i wtedy
+        # animacja jest ta dluzsza, choc bot zapisal sobie "trafione".
+        #
+        # Dlatego nie zgadujemy po wyniku, tylko mierzymy JEDYNA rzecz,
+        # ktora widac na pewno: czy nastepne zarzucenie sie udalo. Gdy nie -
+        # wydluzamy przerwe. Gdy kilka z rzedu poszlo gladko - skracamy.
+        # Bot sam dochodzi do wartosci, ktora dziala u Ciebie, miedzy
+        # podanym minimum a maksimum.
+        self.przerwa_min = float(l.get("po_zlowieniu", 0.7))
+        self.przerwa_max = float(l.get("po_pudle", 3.0))
+        self.po_rundzie = float(l.get("po_rundzie") or self.przerwa_min)
+        self.po_rundzie = max(self.przerwa_min, min(self.przerwa_max, self.po_rundzie))
+        self._gladkie_zarzuty = 0
         self.po_przynecie = float(l.get("po_przynecie", 0.5))
         self.po_zarzuceniu = float(l.get("po_zarzuceniu", 0.9))
+        # Ile zarzucen bez brania wolno, zanim uznamy, ze skonczyla sie
+        # przyneta. Kazde kolejne czeka troche dluzej - jesli powodem byla
+        # za krotka przerwa, bot sam sie z tego wygrzebie.
+        self.max_pudel = int(l.get("max_pudel", 6) or 6)
         self.uczenie = bool(l.get("uczenie", True))
 
         # Czego bot nauczyl sie poprzednio. Wszystkie trzy liczby sa tylko
@@ -216,7 +239,7 @@ class Rybak:
             return
         self._ostatnia_rozmowa = time.time()
         self.push.send("Metin2: ktos obok cos napisal",
-                       f"Lowie dalej. Zlowione: {self.trafien}/{self.prob}.",
+                       f"Lowie dalej. Celnych: {self.trafien}/{self.prob}.",
                        image_png=self._zrzut_ekranu(), priority=4,
                        tags="speech_balloon")
 
@@ -229,7 +252,7 @@ class Rybak:
 
     def _powiadom_o_wiadomosci(self) -> None:
         self.push.send("Metin2: ktos do Ciebie napisal",
-                       f"Przerwalem lowienie. Zlowione: {self.trafien}/{self.prob}, "
+                       f"Przerwalem lowienie. Celnych: {self.trafien}/{self.prob}, "
                        f"zarzucen: {self.zarzucen}.",
                        image_png=self._zrzut_ekranu(), priority=5, tags="envelope")
 
@@ -474,7 +497,7 @@ class Rybak:
         log.info("Stop na %d px, rybka %d px (%d-%d) -> %s (%s, tempo %s, "
                  "na slepo %.0f ms)",
                  szczyt, srodek, lewa, prawa,
-                 "trafione" if trafione else "PUDLO", ocena,
+                 "celnie" if trafione else "NIECELNIE", ocena,
                  f"{zmierzone_tempo:.0f} px/s" if zmierzone_tempo else "niezmierzone",
                  wiek_kotwicy * 1000)
         if pod_rybka:
@@ -556,24 +579,46 @@ class Rybak:
                     pudla_z_rzedu += 1
                     log.warning("Nie doczekalem sie paska (%d z rzedu) - %s",
                                 pudla_z_rzedu, self.ostatni_blad or "")
-                    if pudla_z_rzedu >= 4:
-                        log.error("Cztery razy bez brania - pewnie skonczyla sie "
-                                  "przyneta. Zatrzymuje sie.")
+                    if pudla_z_rzedu >= self.max_pudel:
+                        log.error("%d zarzucen bez brania - pewnie skonczyla sie "
+                                  "przyneta. Zatrzymuje sie.", pudla_z_rzedu)
                         self.push.send("Metin2: lowienie stoi",
-                                       "Cztery zarzucenia bez brania - "
-                                       "pewnie skonczyla sie przyneta.",
+                                       f"{pudla_z_rzedu} zarzucen bez brania - "
+                                       f"pewnie skonczyla sie przyneta.",
                                        priority=4, tags="warning")
                         break
+                    # Najczestszy powod nieudanego zarzucenia to zarzucenie
+                    # ZA WCZESNIE, w trakcie animacji. Z kazda nieudana proba
+                    # czekamy wiec troche dluzej - jesli o to chodzilo, bot
+                    # sam znajdzie wlasciwa dlugosc przerwy.
+                    self._gladkie_zarzuty = 0
+                    stara = self.po_rundzie
+                    self.po_rundzie = min(self.przerwa_max, self.po_rundzie + 0.4)
+                    if self.po_rundzie > stara:
+                        log.info("Wydluzam przerwe po rundzie %.1f -> %.1f s - "
+                                 "moze zarzucalem, zanim skonczyla sie animacja",
+                                 stara, self.po_rundzie)
+                    self._spij(self.po_rundzie + 0.6 * pudla_z_rzedu)
                     continue
                 pudla_z_rzedu = 0
+                # Zarzut sie udal - pasek przyszedl. Po kilku takich z rzedu
+                # mozemy sprobowac czekac krocej; gdy okaze sie, ze za krotko,
+                # petla wyzej zaraz to cofnie.
+                self._gladkie_zarzuty += 1
+                if self._gladkie_zarzuty >= 5 and self.po_rundzie > self.przerwa_min:
+                    self._gladkie_zarzuty = 0
+                    stara = self.po_rundzie
+                    self.po_rundzie = max(self.przerwa_min, self.po_rundzie - 0.1)
+                    log.debug("Piec zarzucen z rzedu bez pudla - skracam przerwe "
+                              "%.1f -> %.1f s", stara, self.po_rundzie)
                 try:
-                    self.zagraj(bar)
+                    zlowione = self.zagraj(bar)
                 except _OknoZmienione:
                     log.info("Okno gry zmienilo rozmiar - szukam paska od nowa")
                     continue
                 self.na_zmiane()
                 self.czekaj_az_zniknie(2.0)
-                self._spij(self.po_zlowieniu)
+                self._spij(self.po_rundzie)
         except _Przerwane:
             log.info("Zatrzymane.")
         except _GraZnikla:
@@ -609,6 +654,7 @@ class Rybak:
         l["wyprzedzenie_ms"] = round(self.wyprzedzenie_ms, 1)
         l["poprawka_px"] = round(self.poprawka, 1)
         l["tempo_nauki"] = round(self.tempo_nauki, 1)
+        l["po_rundzie"] = round(self.po_rundzie, 2)
 
 
 class _Przerwane(Exception):

@@ -37,9 +37,20 @@ DOMYSLNE = {
         # Przerwy w sekundach. Skracaj ostroznie: gdy gra nie zdazy przyjac
         # klawisza, bot zarzuca w prozne i traci cala runde zamiast ulamka
         # sekundy.
-        "po_zlowieniu": 0.7,       # od zniknieciu paska do nastepnej przynety
+        # Przerwa miedzy rundami to ZAKRES, w ktorym bot dostraja sie sam.
+        # Nie da sie jej rozdzielic na "po zlowieniu" i "po pudle", bo bot
+        # nie wie, czy ryba wpadla - celny pasek to nie to samo co zlowiona
+        # ryba, ryba potrafi uciec z haczyka mimo idealnego trafienia.
+        # Mierzymy wiec to, co widac: czy nastepne zarzucenie sie udalo.
+        "po_zlowieniu": 0.7,       # dolna granica przerwy po rundzie
+        "po_pudle": 3.0,           # gorna granica
+        "po_rundzie": None,        # to, co bot sam wymierzyl
         "po_przynecie": 0.5,       # od przynety do zarzucenia
         "po_zarzuceniu": 0.9,      # od zarzucenia do patrzenia na pasek
+        # Ile zarzucen bez brania, zanim bot uzna, ze skonczyla sie przyneta.
+        # Kazde kolejne czeka dluzej, wiec za krotkie przerwy same sie
+        # koryguja, zanim dojdzie do zatrzymania.
+        "max_pudel": 6,
         # Ponizsze bot mierzy sam - to tylko punkt wyjscia.
         "tempo_px_s": None,
         "wyprzedzenie_ms": 0.0,
