@@ -122,7 +122,7 @@ class Okno:
                 skala = 1.0
 
         szer = int(640 * skala)
-        wys = int(860 * skala)
+        wys = int(940 * skala)
         try:
             szer = min(szer, int(self.root.winfo_screenwidth() * 0.95))
             wys = min(wys, int(self.root.winfo_screenheight() * 0.90))
@@ -230,7 +230,29 @@ class Okno:
         ttk.Label(ramka2,
                   text="Po rundzie bot wydluza przerwe po kazdym zgubionym "
                        "zarzuceniu i skraca po pieciu udanych.").grid(
-            row=7, column=0, columnspan=4, padx=8, pady=(0, 6), sticky="w")
+            row=7, column=0, columnspan=4, padx=8, pady=(0, 4), sticky="w")
+
+        # Przerwanie animacji wyciagania - najwiekszy pojedynczy zysk na
+        # czasie, wiec ma wlasny wiersz, a nie schowek w pliku ustawien.
+        self.v_kon = tk.BooleanVar(value=bool(l.get("kon_wlaczony", True)))
+        ttk.Checkbutton(ramka2,
+                        text="Przerywaj animacje wyciagania ryby skrotem:",
+                        variable=self.v_kon).grid(row=8, column=0, columnspan=2,
+                                                  padx=8, sticky="w")
+        self.v_kon_skrot = tk.StringVar(value=l.get("kon_skrot", "ctrl+h"))
+        ttk.Entry(ramka2, textvariable=self.v_kon_skrot, width=10).grid(
+            row=8, column=2, sticky="w")
+        ttk.Label(ramka2, text="odstep wsiadz -> zsiadz:").grid(
+            row=9, column=0, padx=(20, 4), sticky="e")
+        self.v_kon_odstep = tk.StringVar(value=str(l.get("kon_odstep", 0.8)))
+        ttk.Spinbox(ramka2, textvariable=self.v_kon_odstep, width=6, from_=0.1,
+                    to=3.0, increment=0.1).grid(row=9, column=1, sticky="w")
+        ttk.Button(ramka2, text="Sprawdz skrot konia",
+                   command=self._test_konia).grid(row=9, column=2, columnspan=2,
+                                                  padx=(10, 8), sticky="w")
+        ttk.Label(ramka2, text="wsiada na konia i zsiada - to ucina animacje. "
+                               "Kon musi byc przywolany.").grid(
+            row=10, column=0, columnspan=4, padx=8, pady=(0, 6), sticky="w")
 
         # --- celowanie
         ramkaC = ttk.LabelFrame(self.root, text=" 3. Celowanie ")
@@ -401,6 +423,40 @@ class Okno:
 
         threading.Thread(target=wyslij, daemon=True).start()
 
+    def _test_konia(self) -> None:
+        """
+        Wcisnij skrot konia dwa razy, bez lowienia.
+
+        Rozdziela dwa pytania, ktore w trakcie lowienia zlewaja sie w jedno:
+        czy gra w ogole przyjmuje ten skrot od bota, i czy odstep miedzy
+        wsiadaniem a zsiadaniem jest wystarczajacy.
+        """
+        if self.rybak is not None:
+            messagebox.showinfo("Rybak", "Najpierw zatrzymaj lowienie.")
+            return
+        self._zbierz_ustawienia()
+        l = self._sekcja("lowienie")
+        skrot = l.get("kon_skrot") or "ctrl+h"
+        odstep = float(l.get("kon_odstep", 0.8))
+        trzymaj = float(l.get("kon_przytrzymaj", 0.10))
+        self._pisz(f"Test konia: kliknij TERAZ w okno gry. Za 3 s wcisne "
+                   f"{skrot}, a po {odstep:.1f} s jeszcze raz.")
+
+        def testuj():
+            from rybak import klawisze
+            time.sleep(3.0)
+            self.kolejka.put(f"Wciskam {skrot} - postac powinna WSIASC na konia")
+            klawisze.kombinacja(skrot, trzymaj)
+            time.sleep(odstep)
+            self.kolejka.put(f"Wciskam {skrot} - postac powinna ZSIASC")
+            klawisze.kombinacja(skrot, trzymaj)
+            self.kolejka.put(
+                "Test skonczony. Nie wsiadla ani razu = gra nie przyjmuje "
+                "skrotu (kon przywolany? bot uruchomiony jako administrator?). "
+                "Wsiadla, ale zostala na koniu = zwieksz odstep.")
+
+        threading.Thread(target=testuj, daemon=True).start()
+
     # ------------------------------------------------------------ start
 
     def _zbierz_ustawienia(self) -> None:
@@ -420,6 +476,13 @@ class Okno:
         except ValueError:
             pass
         l["uczenie"] = bool(self.v_uczenie.get())
+        l["kon_wlaczony"] = bool(self.v_kon.get())
+        l["kon_skrot"] = self.v_kon_skrot.get().strip().lower()
+        try:
+            l["kon_odstep"] = max(0.1, min(3.0, float(
+                self.v_kon_odstep.get().replace(",", "."))))
+        except ValueError:
+            pass
         p = self._sekcja("powiadomienia")
         p["enabled"] = bool(self.v_push.get())
         p["ntfy_topic"] = self.v_kanal.get().strip()
@@ -632,6 +695,10 @@ class Okno:
                     self.przycisk.config(text="Zacznij lowic")
                     self.stan.config(text="Gotowy.")
                     self._pokaz_nauke()
+                    # Bot mogl sam wydluzyc odstep konia - pokaz nowa wartosc,
+                    # inaczej nastepny Start nadpisalby ja stara z okienka.
+                    self.v_kon_odstep.set(str(
+                        self._sekcja("lowienie").get("kon_odstep", 0.8)))
                     continue
                 if wiersz.startswith("__stan__"):
                     self.stan.config(text=wiersz[8:])

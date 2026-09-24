@@ -81,6 +81,31 @@ class Rybak:
         self.po_rundzie = float(l.get("po_rundzie") or self.przerwa_min)
         self.po_rundzie = max(self.przerwa_min, min(self.przerwa_max, self.po_rundzie))
         self._gladkie_zarzuty = 0
+        # PRZERWANIE ANIMACJI WYCIAGANIA.
+        # Po mini-grze postac odgrywa dlugie wyciaganie ryby i przez ten
+        # czas gra nie przyjmuje zarzucenia. Wsiadanie na konia i zsiadanie
+        # z niego te animacje ucina, wiec zamiast czekac - przerywamy ja i
+        # zarzucamy od razu. Skrot jest do zmiany, bo nie kazdy serwer ma
+        # ten sam; pusty albo wylaczony = nie ruszamy nic.
+        self.kon_wlaczony = bool(l.get("kon_wlaczony", True))
+        self.kon_skrot = str(l.get("kon_skrot", "ctrl+h") or "")
+        self.kon_odstep = float(l.get("kon_odstep", 0.8))
+        self.po_koniu = float(l.get("po_koniu", 0.25))
+        self.kon_przytrzymaj = float(l.get("kon_przytrzymaj", 0.10))
+        self._rund_z_koniem = 0
+        # Czy od ostatniego udanego zarzutu uzywalismy konia. Gdy gra zgubi
+        # JEDNO z dwoch wcisniec, postac zostaje na koniu, a z konia nie da
+        # sie lowic: przyneta wchodzi, zarzut juz nie. Wtedy po nieudanym
+        # zarzucie wciskamy skrot jeszcze raz (patrz _ratuj_z_konia).
+        self._kon_od_zarzutu = False
+        self._ratunkow_z_rzedu = 0
+        # Jak dlugo po puszczeniu klawisza patrzymy na pasek, zeby ocenic
+        # rzut. Wypelnienie dobiega do konca w czasie rownym opoznieniu
+        # klawiatury - zwykle 50-150 ms - wiec 0,35 s z zapasem wystarcza.
+        # Wczesniej bylo tu 0,8 s i przez to sztuczka z koniem przychodzila
+        # za pozno: gra przechodzila juz w animacje, ktorej koniem sie nie
+        # przerwie.
+        self.ocena_s = float(l.get("ocena_s", 0.35))
         self.po_przynecie = float(l.get("po_przynecie", 0.5))
         self.po_zarzuceniu = float(l.get("po_zarzuceniu", 0.9))
         # Ile zarzucen bez brania wolno, zanim uznamy, ze skonczyla sie
@@ -209,6 +234,69 @@ class Rybak:
         return self.oko.region(*box)
 
     # ------------------------------------------------------------ klawisze
+
+    def _przerwij_animacje(self) -> None:
+        """
+        Utnij animacje wyciagania ryby, wsiadajac na konia i zsiadajac.
+
+        Dlaczego to dziala: gra nie przyjmuje zarzucenia, dopoki postac
+        odgrywa wyciaganie. Wejscie na konia przerywa te animacje, a zejscie
+        wraca do stanu, w ktorym mozna lowic - i to razem trwa krocej niz
+        samo doczekanie do konca.
+
+        Nie sprawdzamy, czy postac naprawde wsiadla: to kosztowaloby zrzut i
+        analize, a blad i tak nic nie psuje. Gdy skrot nie zadziala, zostaje
+        zwykla przerwa po rundzie, ktora i tak sie sama dostraja.
+        """
+        if not self.kon_wlaczony or not self.kon_skrot:
+            return
+        self._rund_z_koniem += 1
+        # Pierwsze trzy razy piszemy o tym glosno - zebys widzial w logu,
+        # ze bot w ogole probuje. Potem juz tylko w trybie szczegolowym.
+        (log.info if self._rund_z_koniem <= 3 else log.debug)(
+            "Wsiadam i zsiadam z konia (%s), zeby uciac animacje", self.kon_skrot)
+        try:
+            klawisze.kombinacja(self.kon_skrot, self.kon_przytrzymaj)   # wsiadamy
+            self._spij(self.kon_odstep)
+            klawisze.kombinacja(self.kon_skrot, self.kon_przytrzymaj)   # zsiadamy
+            self._spij(self.po_koniu)
+        except _Przerwane:
+            raise
+        except Exception as exc:
+            log.warning("Nie udalo sie przerwac animacji skrotem %r: %s",
+                        self.kon_skrot, exc)
+        self._kon_od_zarzutu = True
+
+    def _ratuj_z_konia(self) -> None:
+        """
+        Zarzut po sztuczce z koniem nie wyszedl - pewnie siedzimy na koniu.
+
+        Nie widzimy, czy postac jest na koniu, wiec po prostu przelaczamy
+        jeszcze raz. Jesli jednak nie siedziala, to teraz wsiadzie - ale
+        wtedy kolejny zarzut tez nie wyjdzie i nastepne przelaczenie ja
+        zsadzi. Najgorzej kosztuje to jedno dodatkowe zarzucenie, a bez tego
+        bot stal do konca przynety.
+
+        Skoro gra zgubila zsiadanie, to prawie zawsze dlatego, ze przyszlo
+        za szybko po wsiadaniu - wiec przy okazji wydluzamy odstep.
+        """
+        if not (self.kon_wlaczony and self.kon_skrot and self._kon_od_zarzutu):
+            return
+        self._ratunkow_z_rzedu += 1
+        log.warning("Zarzut nie wyszedl zaraz po koniu - postac mogla zostac "
+                    "na koniu. Wciskam %s jeszcze raz.", self.kon_skrot)
+        if self._ratunkow_z_rzedu == 1 and self.kon_odstep < 2.0:
+            stary = self.kon_odstep
+            self.kon_odstep = round(min(2.0, self.kon_odstep + 0.2), 2)
+            log.info("Wydluzam odstep miedzy wsiadaniem a zsiadaniem "
+                     "%.2f -> %.2f s", stary, self.kon_odstep)
+        try:
+            klawisze.kombinacja(self.kon_skrot, self.kon_przytrzymaj)
+            self._spij(self.kon_odstep + self.po_koniu)
+        except _Przerwane:
+            raise
+        except Exception as exc:
+            log.warning("Skrot konia nie poszedl: %s", exc)
 
     def _stuknij(self, klawisz: str, trzymaj: float = 0.06) -> None:
         # key_down/key_up to SendInput ze skankodem - jedyny sposob, ktory
@@ -466,10 +554,10 @@ class Rybak:
         szczyt = -1.0
         rybka_w_szczycie = None
         ostatnia_rybka = None
-        koniec = time.time() + 0.8
+        koniec = time.time() + self.ocena_s
         while time.time() < koniec:
             if self.stop_flaga.is_set():
-                break            # Stop ma dzialac od razu, nie po 0,8 s
+                break            # Stop ma dzialac od razu
             img = self._zrzut_wycinka(box)
             fx, mk, zyje = read_bar(img, bar, origin, extra_left=35)
             if mk is not None:
@@ -579,9 +667,14 @@ class Rybak:
                     pudla_z_rzedu += 1
                     log.warning("Nie doczekalem sie paska (%d z rzedu) - %s",
                                 pudla_z_rzedu, self.ostatni_blad or "")
+                    self._ratuj_z_konia()
                     if pudla_z_rzedu >= self.max_pudel:
                         log.error("%d zarzucen bez brania - pewnie skonczyla sie "
                                   "przyneta. Zatrzymuje sie.", pudla_z_rzedu)
+                        if self._kon_od_zarzutu:
+                            log.error("Jesli postac siedzi na koniu - zsiadz "
+                                      "recznie i zwieksz 'odstep wsiadz -> "
+                                      "zsiadz' albo wylacz sztuczke z koniem.")
                         self.push.send("Metin2: lowienie stoi",
                                        f"{pudla_z_rzedu} zarzucen bez brania - "
                                        f"pewnie skonczyla sie przyneta.",
@@ -601,6 +694,8 @@ class Rybak:
                     self._spij(self.po_rundzie + 0.6 * pudla_z_rzedu)
                     continue
                 pudla_z_rzedu = 0
+                self._kon_od_zarzutu = False
+                self._ratunkow_z_rzedu = 0
                 # Zarzut sie udal - pasek przyszedl. Po kilku takich z rzedu
                 # mozemy sprobowac czekac krocej; gdy okaze sie, ze za krotko,
                 # petla wyzej zaraz to cofnie.
@@ -616,6 +711,10 @@ class Rybak:
                 except _OknoZmienione:
                     log.info("Okno gry zmienilo rozmiar - szukam paska od nowa")
                     continue
+                # Najpierw utnij animacje, potem dopiero czekaj - inaczej
+                # przerwa leciala rownolegle z czyms, co i tak zaraz
+                # przerwiemy.
+                self._przerwij_animacje()
                 self.na_zmiane()
                 self.czekaj_az_zniknie(2.0)
                 self._spij(self.po_rundzie)
@@ -655,6 +754,7 @@ class Rybak:
         l["poprawka_px"] = round(self.poprawka, 1)
         l["tempo_nauki"] = round(self.tempo_nauki, 1)
         l["po_rundzie"] = round(self.po_rundzie, 2)
+        l["kon_odstep"] = round(self.kon_odstep, 2)
 
 
 class _Przerwane(Exception):

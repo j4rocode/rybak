@@ -11,9 +11,12 @@ Modul dziala tylko na Windows.
 from __future__ import annotations
 
 import ctypes
+import logging
 import random
 import time
 from ctypes import wintypes
+
+log = logging.getLogger("rybak")
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 
@@ -176,6 +179,36 @@ def key_down(key: str) -> None:
 def key_up(key: str) -> None:
     scan, ext = _resolve(key)
     _send([_key_input(scan, True, ext)])
+
+
+def kombinacja(skrot: str, hold: float = 0.05) -> None:
+    """
+    Wyslij kombinacje w rodzaju "ctrl+h".
+
+    Kolejnosc ma znaczenie: modyfikatory ida w dol, dopiero potem klawisz
+    wlasciwy, a puszczamy w odwrotnej kolejnosci. Gra sprawdza stan Ctrl w
+    chwili nadejscia "h" - gdyby Ctrl puscic pierwszy, zostaloby samo "h".
+
+    Puste albo nierozpoznane - nic nie robimy. Lepiej nie wyslac nic niz
+    wyslac przypadkowy klawisz w czyjejs grze.
+    """
+    czesci = [c.strip().lower() for c in str(skrot or "").split("+") if c.strip()]
+    if not czesci:
+        return
+    for c in czesci:
+        if c not in SCANCODES:
+            log.warning("Nie znam klawisza %r w skrocie %r - pomijam", c, skrot)
+            return
+    modyfikatory, wlasciwy = czesci[:-1], czesci[-1]
+    for m in modyfikatory:
+        key_down(m)
+        time.sleep(0.02)
+    key_down(wlasciwy)
+    time.sleep(hold)
+    key_up(wlasciwy)
+    for m in reversed(modyfikatory):
+        time.sleep(0.02)
+        key_up(m)
 
 
 def tap(key: str, hold: float = 0.04, jitter: float = 0.02) -> None:

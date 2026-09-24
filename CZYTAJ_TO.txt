@@ -31,6 +31,25 @@ NIC NIE TRZEBA KALIBROWAC
   poprawia po kazdej rybie, wiec pierwsze 2-3 proby moga byc chybione,
   a potem sam sie dostraja.
 
+SZYBSZE LOWIENIE
+  Po mini-grze postac dlugo wyciaga rybe i przez ten czas gra nie
+  przyjmuje zarzucenia. Wsiadanie na konia i zsiadanie z niego te
+  animacje ucina - bot robi to sam po kazdej rundzie, skrotem Ctrl+H.
+
+  Jesli Twoj serwer ma inny skrot na konia, wpisz go w okienku, w
+  sekcji "Klawisze i przerwy". Jesli nie masz konia albo wolisz bez
+  tego - odznacz to pole. Bot bedzie wtedy po prostu czekal, az
+  animacja sie skonczy.
+
+  Kon musi byc przywolany (stac obok postaci). Przycisk "Sprawdz skrot
+  konia" wciska skrot dwa razy bez lowienia - kliknij w gre i patrz:
+    - postac nie wsiada wcale  -> gra nie przyjmuje skrotu: sprawdz,
+      czy kon jest przywolany i czy Rybak ruszyl jako administrator
+    - wsiada, ale zostaje na koniu -> zwieksz "odstep wsiadz -> zsiadz"
+  Gdy postac mimo wszystko zostanie na koniu (przyneta wchodzi, a
+  zarzutu nie ma), bot sam wcisnie skrot jeszcze raz i wydluzy odstep.
+
+
 KLAWISZE
   Domyslnie: przyneta na "1", zarzucenie i ladowanie na spacji. Jesli masz
   inaczej, zmien to w okienku przed startem.

@@ -45,6 +45,22 @@ DOMYSLNE = {
         "po_zlowieniu": 0.7,       # dolna granica przerwy po rundzie
         "po_pudle": 3.0,           # gorna granica
         "po_rundzie": None,        # to, co bot sam wymierzyl
+
+        # Przerwanie animacji wyciagania ryby. Po mini-grze postac dlugo
+        # wyciaga rybe i przez ten czas gra nie przyjmuje zarzucenia.
+        # Wsiadanie na konia i zsiadanie te animacje ucina, wiec zamiast
+        # czekac - przerywamy ja. Skrot bywa inny na innym serwerze.
+        "kon_wlaczony": True,
+        "kon_skrot": "ctrl+h",
+        # Miedzy wsiadaniem a zsiadaniem. Za krotko = gra gubi zsiadanie i
+        # postac zostaje na koniu, z ktorego nie da sie lowic.
+        "kon_odstep": 0.8,
+        "po_koniu": 0.25,          # po zsiadnieciu, zanim zarzucimy
+        "kon_przytrzymaj": 0.10,   # jak dlugo trzymac skrot (gra musi go zauwazyc)
+        # Ile sekund po puszczeniu spacji patrzymy na pasek, zeby ocenic
+        # celnosc. Dopiero PO tym wsiadamy na konia - im krocej, tym
+        # wczesniej ucinamy animacje.
+        "ocena_s": 0.35,
         "po_przynecie": 0.5,       # od przynety do zarzucenia
         "po_zarzuceniu": 0.9,      # od zarzucenia do patrzenia na pasek
         # Ile zarzucen bez brania, zanim bot uzna, ze skonczyla sie przyneta.
@@ -113,12 +129,22 @@ def _scal(baza: dict, zmiany: dict) -> dict:
     return out
 
 
+def _migruj(ust: dict) -> dict:
+    """Poprawki zapisanych wartosci, ktore okazaly sie zlymi domyslami."""
+    l = ust.get("lowienie")
+    if isinstance(l, dict):
+        # 2.13 zapisywal 0,35 s - za malo, gra gubila zsiadanie z konia.
+        if l.get("kon_odstep") == 0.35:
+            l["kon_odstep"] = 0.8
+    return ust
+
+
 def wczytaj(sciezka: str | Path = PLIK) -> dict:
     p = Path(sciezka)
     if not p.exists():
         return json.loads(json.dumps(DOMYSLNE))
     try:
-        return _scal(DOMYSLNE, json.loads(p.read_text(encoding="utf-8")))
+        return _migruj(_scal(DOMYSLNE, json.loads(p.read_text(encoding="utf-8"))))
     except Exception:
         # Uszkodzony plik nie moze blokowac programu - lepiej ruszyc na
         # domyslnych niz pokazac komus traceback o JSON-ie.
